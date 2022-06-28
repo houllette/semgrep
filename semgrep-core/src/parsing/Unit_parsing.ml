@@ -68,6 +68,7 @@ let lang_parsing_tests () =
       pack_parsing_tests_for_lang Lang.Swift "swift" ".swift";
       pack_parsing_tests_for_lang Lang.Kotlin "kotlin" ".kt";
       pack_parsing_tests_for_lang Lang.Hack "hack" ".hack";
+      pack_parsing_tests_for_lang Lang.Elixir "elixir" ".ex";
       (* here we have both a Pfff and tree-sitter parser *)
       pack_parsing_tests_for_lang Lang.Java "java" ".java";
       pack_parsing_tests_for_lang Lang.Go "go" ".go";
