@@ -38,6 +38,12 @@ let token = H.token
 (* Disable warning against unused 'rec' *)
 [@@@warning "-39"]
 
+let binary_token_to_expression (op : G.operator) (tok : Parse_info.token_mutable) =
+  G.IdSpecial (G.Op op, tok) |> G.e
+
+let build_binary_expression (left : G.expr) (op: G.expr) (right : G.expr) = 
+      G.Call (op, G.fake_bracket [ G.Arg left; G.Arg right ] ) |> G.e
+
 (*****************************************************************************)
 (* Boilerplate converter *)
 (*****************************************************************************)
@@ -536,7 +542,7 @@ and map_binary_operator (env : env) (x : CST.binary_operator) =
       let v1 = map_expression env v1 in
       let v2 = (* "=" *) token env v2 in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      G.Assign (v1, v2, v3) |> G.e
   | `Exp_choice_BARBAR_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 =
@@ -546,7 +552,7 @@ and map_binary_operator (env : env) (x : CST.binary_operator) =
         | `Or tok -> (* "or" *) token env tok
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 (binary_token_to_expression G.Or v2) v3
   | `Exp_choice_AMPAMP_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 =
@@ -556,55 +562,55 @@ and map_binary_operator (env : env) (x : CST.binary_operator) =
         | `And tok -> (* "and" *) token env tok
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 (binary_token_to_expression G.And v2) v3
   | `Exp_choice_EQEQ_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 =
         match v2 with
-        | `EQEQ tok -> (* "==" *) token env tok
-        | `BANGEQ tok -> (* "!=" *) token env tok
-        | `EQTILDE tok -> (* "=~" *) token env tok
-        | `EQEQEQ tok -> (* "===" *) token env tok
-        | `BANGEQEQ tok -> (* "!==" *) token env tok
+        | `EQEQ tok -> (* "==" *) binary_token_to_expression G.Eq (token env tok)
+        | `BANGEQ tok -> (* "!=" *) binary_token_to_expression G.NotEq (token env tok) 
+        | `EQTILDE tok -> (* "=~" *) binary_token_to_expression G.RegexpMatch (token env tok) 
+        | `EQEQEQ tok -> (* "===" *) binary_token_to_expression G.PhysEq (token env tok) 
+        | `BANGEQEQ tok -> (* "!==" *) binary_token_to_expression G.NotPhysEq (token env tok) 
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 v2 v3
   | `Exp_choice_LT_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 =
         match v2 with
-        | `LT tok -> (* "<" *) token env tok
-        | `GT tok -> (* ">" *) token env tok
-        | `LTEQ tok -> (* "<=" *) token env tok
-        | `GTEQ tok -> (* ">=" *) token env tok
+        | `LT tok -> (* "<" *) binary_token_to_expression G.Lt (token env tok)
+        | `GT tok -> (* ">" *) binary_token_to_expression G.Gt (token env tok)
+        | `LTEQ tok -> (* "<=" *) binary_token_to_expression G.LtE (token env tok)
+        | `GTEQ tok -> (* ">=" *) binary_token_to_expression G.GtE (token env tok)
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 v2 v3
   | `Exp_choice_BARGT_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 =
         match v2 with
-        | `BARGT tok -> (* "|>" *) token env tok
-        | `LTLTLT tok -> (* "<<<" *) token env tok
-        | `GTGTGT tok -> (* ">>>" *) token env tok
-        | `LTLTTILDE tok -> (* "<<~" *) token env tok
-        | `TILDEGTGT tok -> (* "~>>" *) token env tok
-        | `LTTILDE tok -> (* "<~" *) token env tok
-        | `TILDEGT tok -> (* "~>" *) token env tok
-        | `LTTILDEGT tok -> (* "<~>" *) token env tok
-        | `LTBARGT tok -> (* "<|>" *) token env tok
+        | `BARGT tok -> (* "|>" *) binary_token_to_expression G.Pipe (token env tok)
+        | `LTLTLT tok -> (* "<<<" *) binary_token_to_expression G.LSL (token env tok)
+        | `GTGTGT tok -> (* ">>>" *) binary_token_to_expression G.LSR (token env tok)
+        | `LTLTTILDE tok -> (* "<<~" *) todo env tok
+        | `TILDEGTGT tok -> (* "~>>" *) todo env tok
+        | `LTTILDE tok -> (* "<~" *) todo env tok
+        | `TILDEGT tok -> (* "~>" *) todo env tok
+        | `LTTILDEGT tok -> (* "<~>" *) todo env tok
+        | `LTBARGT tok -> (* "<|>" *) todo env tok
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 v2 v3
   | `Exp_choice_in_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 =
         match v2 with
-        | `In tok -> (* "in" *) token env tok
-        | `Not_in tok -> (* not_in *) token env tok
+        | `In tok -> (* "in" *) binary_token_to_expression G.In (token env tok)
+        | `Not_in tok -> (* not_in *) binary_token_to_expression G.NotIn (token env tok)
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 v2 v3
   | `Exp_HATHATHAT_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 = (* "^^^" *) token env v2 in
@@ -619,33 +625,33 @@ and map_binary_operator (env : env) (x : CST.binary_operator) =
       let v1 = map_expression env v1 in
       let v2 =
         match v2 with
-        | `PLUSPLUS tok -> (* "++" *) token env tok
-        | `DASHDASH tok -> (* "--" *) token env tok
-        | `PLUSPLUSPLUS tok -> (* "+++" *) token env tok
-        | `DASHDASHDASH tok -> (* "---" *) token env tok
-        | `DOTDOT tok -> (* ".." *) token env tok
-        | `LTGT tok -> (* "<>" *) token env tok
+        | `PLUSPLUS tok -> (* "++" *) binary_token_to_expression G.Concat (token env tok)
+        | `DASHDASH tok -> (* "--" *) todo env tok
+        | `PLUSPLUSPLUS tok -> (* "+++" *) todo env tok
+        | `DASHDASHDASH tok -> (* "---" *) todo env tok
+        | `DOTDOT tok -> (* ".." *) binary_token_to_expression G.RangeInclusive (token env tok)
+        | `LTGT tok -> (* "<>" *) binary_token_to_expression G.Concat (token env tok)
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 v2 v3
   | `Exp_choice_PLUS_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 =
         match v2 with
-        | `PLUS tok -> (* "+" *) token env tok
-        | `DASH tok -> (* "-" *) token env tok
+        | `PLUS tok -> (* "+" *) binary_token_to_expression G.Plus (token env tok)
+        | `DASH tok -> (* "-" *) binary_token_to_expression G.Minus (token env tok)
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 v2 v3
   | `Exp_choice_STAR_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 =
         match v2 with
-        | `STAR tok -> (* "*" *) token env tok
-        | `SLASH tok -> (* "/" *) token env tok
+        | `STAR tok -> (* "*" *) binary_token_to_expression G.Mult (token env tok)
+        | `SLASH tok -> (* "/" *) binary_token_to_expression G.Div (token env tok)
       in
       let v3 = map_expression env v3 in
-      todo env (v1, v2, v3)
+      build_binary_expression v1 v2 v3
   | `Exp_STARSTAR_exp (v1, v2, v3) ->
       let v1 = map_expression env v1 in
       let v2 = (* "**" *) token env v2 in
