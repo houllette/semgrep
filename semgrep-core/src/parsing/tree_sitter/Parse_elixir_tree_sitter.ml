@@ -32,6 +32,16 @@ type env = unit H.env
 
 let token = H.token
 
+external int_of_string : string -> int = "caml_int_of_string"
+
+let int_of_string_opt s =
+  (* TODO: provide this directly as a non-raising primitive. *)
+  try Some (int_of_string s)
+  with Failure _ -> None
+
+let empty_statement =
+  G.Block (G.sc, [], G.sc) |> G.s
+
 (* Disable warnings against unused variables *)
 [@@@warning "-26-27"]
 
@@ -43,6 +53,11 @@ let binary_token_to_expression (op : G.operator) (tok : Parse_info.token_mutable
 
 let build_binary_expression (left : G.expr) (op: G.expr) (right : G.expr) = 
       G.Call (op, G.fake_bracket [ G.Arg left; G.Arg right ] ) |> G.e
+
+let unwrap_expr_stmt (expr : G.expr) =
+    match expr with
+      | {e = G.StmtExpr (stmt); _} -> stmt
+      | v1 -> G.exprstmt v1
 
 (*****************************************************************************)
 (* Boilerplate converter *)
@@ -85,8 +100,8 @@ let _map_before_unary_op (env : env) (tok : CST.before_unary_op) =
 
 let map_boolean (env : env) (x : CST.boolean) =
   match x with
-  | `True tok -> (* "true" *) token env tok
-  | `False tok -> (* "false" *) token env tok
+  | `True tok -> (* "true" *) G.Bool (true, token env tok)
+  | `False tok -> (* "false" *) G.Bool (false, token env tok)
 
 let _map_quoted_content_curly (env : env) (tok : CST.quoted_content_curly) =
   (* quoted_content_curly *) token env tok
@@ -187,15 +202,18 @@ let map_terminator (env : env) (x : CST.terminator) =
   | `Rep_pat_509ec78_SEMI (v1, v2) ->
       let v1 = Common.map (token env (* pattern \r?\n *)) v1 in
       let v2 = (* ";" *) token env v2 in
-      todo env (v1, v2)
-  | `Rep1_pat_509ec78 xs -> Common.map (token env (* pattern \r?\n *)) xs
+      v2
+  | `Rep1_pat_509ec78 xs ->
+    token env (List.hd xs)
+    (* Common.map (token env pattern \r?\n) xs *)
 
-let map_identifier (env : env) (x : CST.identifier) =
+
+let map_identifier (env : env) (x : CST.identifier) : G.label =
   match x with
   | `Pat_cf9c6c3 tok ->
       (* pattern [_\p{Ll}\p{Lm}\p{Lo}\p{Nl}\u1885\u1886\u2118\u212E\u309B\u309C][\p{ID_Continue}]*[?!]? *)
-      token env tok
-  | `DOTDOTDOT tok -> (* "..." *) token env tok
+      H.str env tok
+  | `DOTDOTDOT tok -> H.str env tok
 
 let map_quoted_slash (env : env) ((v1, v2, v3) : CST.quoted_slash) =
   let v1 = (* "/" *) token env v1 in
@@ -416,15 +434,15 @@ and map_anon_choice_choice_stab_clause_rep_term_choice_stab_clause_b295119
   | `Choice_exp_rep_term_choice_exp_opt_term (v1, v2, v3) ->
       let v1 =
         match v1 with
-        | `Exp x -> map_expression env x
+        | `Exp x -> unwrap_expr_stmt (map_expression env x)
       in
       let v2 = Common.map (map_anon_term_choice_exp_996111b env) v2 in
       let v3 =
         match v3 with
         | Some x -> map_terminator env x
-        | None -> todo env ()
+        | None -> G.sc
       in
-      todo env (v1, v2, v3)
+      v1
 
 and map_anon_choice_exp_0094635 (env : env) (x : CST.anon_choice_exp_0094635) =
   match x with
@@ -454,9 +472,9 @@ and map_anon_exp_rep_COMMA_exp_opt_COMMA_keywos_041d82e (env : env)
         let v1 = (* "," *) token env v1 in
         let v2 = map_keywords env v2 in
         todo env (v1, v2)
-    | None -> todo env ()
+    | None -> ()
   in
-  todo env (v1, v2, v3)
+  v1
 
 and map_anon_opt_opt_nl_before_do_do_blk_3eff85f (env : env)
     (opt : CST.anon_opt_opt_nl_before_do_do_blk_3eff85f) =
@@ -465,11 +483,11 @@ and map_anon_opt_opt_nl_before_do_do_blk_3eff85f (env : env)
       let v1 =
         match v1 with
         | Some tok -> (* newline_before_do *) token env tok
-        | None -> todo env ()
+        | None -> G.sc
       in
       let v2 = map_do_block env v2 in
-      todo env (v1, v2)
-  | None -> todo env ()
+      v2
+  | None -> empty_statement
 
 and map_anon_term_choice_exp_996111b (env : env)
     ((v1, v2) : CST.anon_term_choice_exp_996111b) =
@@ -478,7 +496,7 @@ and map_anon_term_choice_exp_996111b (env : env)
     match v2 with
     | `Exp x -> map_expression env x
   in
-  todo env (v1, v2)
+  v2
 
 and map_anon_term_choice_stab_clause_70647b7 (env : env)
     ((v1, v2) : CST.anon_term_choice_stab_clause_70647b7) =
@@ -501,7 +519,12 @@ and map_anonymous_dot (env : env) ((v1, v2) : CST.anonymous_dot) =
 
 and map_atom (env : env) (x : CST.atom) =
   match x with
-  | `Atom_ tok -> (* atom_ *) token env tok
+  | `Atom_ tok ->
+    (* atom_ *)
+    let t = token env tok in
+    let tcolon, tafter = Parse_info.split_info_at_pos 1 t in
+    let str = Parse_info.str_of_info tafter in
+    G.Atom (t, (str, tafter))
   | `Quoted_atom (v1, v2) ->
       let v1 = (* quoted_atom_start *) token env v1 in
       let v2 = map_anon_choice_quoted_i_double_d7d5f65 env v2 in
@@ -685,7 +708,7 @@ and map_body (env : env) ((v1, v2, v3, v4) : CST.body) =
   in
   todo env (v1, v2, v3, v4)
 
-and map_call (env : env) (x : CST.call) =
+and map_call (env : env) (x : CST.call) : G.expr =
   match x with
   | `Call_with_parens_b98484c x -> map_call_without_parentheses env x
   | `Call_with_parens_403315d x -> map_call_with_parentheses env x
@@ -702,15 +725,15 @@ and map_call_arguments_with_parentheses (env : env)
   todo env (v1, v2, v3)
 
 and map_call_arguments_with_parentheses_immediate (env : env)
-    ((v1, v2, v3) : CST.call_arguments_with_parentheses_immediate) =
+    ((v1, v2, v3) : CST.call_arguments_with_parentheses_immediate) : G.arguments =
   let v1 = (* "(" *) token env v1 in
   let v2 =
     match v2 with
     | Some x -> map_call_arguments_with_trailing_separator env x
-    | None -> todo env ()
+    | None -> []
   in
   let v3 = (* ")" *) token env v3 in
-  todo env (v1, v2, v3)
+  (v1, v2, v3)
 
 and map_call_arguments_with_trailing_separator (env : env)
     (x : CST.call_arguments_with_trailing_separator) =
@@ -731,9 +754,9 @@ and map_call_arguments_with_trailing_separator (env : env)
             let v1 = (* "," *) token env v1 in
             let v2 = map_keywords_with_trailing_separator env v2 in
             todo env (v1, v2)
-        | None -> todo env ()
+        | None -> G.sc
       in
-      todo env (v1, v2, v3)
+      [G.Arg v1]
   | `Keywos_with_trai_sepa x -> map_keywords_with_trailing_separator env x
 
 and map_call_arguments_without_parentheses (env : env)
@@ -759,14 +782,85 @@ and map_call_with_parentheses (env : env) (x : CST.call_with_parentheses) =
       let v3 = map_anon_opt_opt_nl_before_do_do_blk_3eff85f env v3 in
       todo env (v1, v2, v3)
 
+and get_func_id_and_params (env: env) x =
+  match x with
+    | `Id id -> map_identifier env id, []
+    | `Call v1 -> map_func_def_call env v1
+    | _ -> todo env x
+
+and get_func_params (env : env) (x : CST.call_arguments_with_trailing_separator) =
+  match x with
+  | `Exp_rep_COMMA_exp_opt_COMMA_keywos_with_trai_sepa (v1, v2, v3) ->
+      let (id, _) = get_func_id_and_params env v1 in
+      [G.Param (G.param_of_id id)]
+  | `Keywos_with_trai_sepa x -> todo env x 
+
+and map_func_def_call (env : env) (x : CST.call) =
+  match x with
+  | `Call_with_parens_403315d x ->
+    (match x with
+      | `Local_call_with_parens (v1, (_, v2, _), v3) ->
+        let id = map_identifier env v1 in
+        let params =
+          match v2 with
+          | Some x -> get_func_params env x
+          | None -> []
+        in
+        (id, params)
+      | _ -> todo env x)
+  | _ -> todo env x
+
+and get_func_def (env : env) (x : CST.call_arguments_without_parentheses) =
+  match x with
+  | `Exp_rep_COMMA_exp_opt_COMMA_keywos (v1, v2, v3) ->
+    get_func_id_and_params env v1
+  | `Keywos x -> todo env x
+
+and get_module_def_id (env : env) (x : CST.call_arguments_without_parentheses) =
+  match x with
+  | `Exp_rep_COMMA_exp_opt_COMMA_keywos (v1, v2, v3) ->
+    (match v1 with
+      | `Alias alias -> H.str env alias
+      | _ -> todo env x)
+  | `Keywos x -> todo env x
+
+
+and build_function (env : env)
+    (v1 : CST.call_arguments_without_parentheses )
+    (v2 : CST.anon_opt_opt_nl_before_do_do_blk_3eff85f)
+    attrs =
+  let func_body = map_anon_opt_opt_nl_before_do_do_blk_3eff85f env v2 in
+  let id, params = get_func_def env v1 in
+  let funcdef =
+    {
+      G.fparams = params;
+      frettype = None;
+      fbody = G.FBStmt func_body;
+      fkind = (G.Function, G.sc);
+    }
+  in
+  let ent = G.basic_entity ~attrs:attrs id in
+  G.DefStmt (ent, G.FuncDef funcdef) |> G.s
+
+and build_module (env : env)
+    (v1 : CST.call_arguments_without_parentheses )
+    (v2 : CST.anon_opt_opt_nl_before_do_do_blk_3eff85f) =
+  let body = map_anon_opt_opt_nl_before_do_do_blk_3eff85f env v2 in
+  let ent = G.basic_entity (get_module_def_id env v1) in
+  let mkind = G.ModuleStruct (None, [ body ]) in
+  let def = { G.mbody = mkind } in
+  G.DefStmt (ent, G.ModuleDef def) |> G.s
+    
 and map_call_without_parentheses (env : env) (x : CST.call_without_parentheses)
     =
   match x with
   | `Local_call_with_parens (v1, v2, v3) ->
-      let v1 = map_identifier env v1 in
-      let v2 = map_call_arguments_without_parentheses env v2 in
-      let v3 = map_anon_opt_opt_nl_before_do_do_blk_3eff85f env v3 in
-      todo env (v1, v2, v3)
+    let call = match map_identifier env v1 with
+      | ("def", tok) -> build_function env v2 v3 [G.KeywordAttr (G.Public, tok)]
+      | ("defp", tok) -> build_function env v2 v3 [G.KeywordAttr (G.Private, tok)]
+      | ("defmodule", tok) -> build_module env v2 v3
+      | (unknown, _) -> todo env (v1, v2, v3) in
+      G.stmt_to_expr call
   | `Local_call_just_do_blk (v1, v2) ->
       let v1 = map_identifier env v1 in
       let v2 = map_do_block env v2 in
@@ -816,14 +910,14 @@ and map_do_block (env : env) ((v1, v2, v3, v4, v5) : CST.do_block) =
   let v2 =
     match v2 with
     | Some x -> map_terminator env x
-    | None -> todo env ()
+    | None -> G.sc
   in
   let v3 =
     match v3 with
     | Some x ->
         map_anon_choice_choice_stab_clause_rep_term_choice_stab_clause_b295119
           env x
-    | None -> todo env ()
+    | None -> empty_statement
   in
   let v4 =
     Common.map
@@ -836,14 +930,14 @@ and map_do_block (env : env) ((v1, v2, v3, v4, v5) : CST.do_block) =
       v4
   in
   let v5 = (* "end" *) token env v5 in
-  todo env (v1, v2, v3, v4, v5)
+  G.Block (v1, [v3], v5) |> G.s (* TODO *)
 
 and map_dot (env : env) ((v1, v2, v3) : CST.dot) =
   let v1 = map_expression env v1 in
   let v2 = (* "." *) token env v2 in
   let v3 =
     match v3 with
-    | `Alias tok -> (* alias *) token env tok
+    | `Alias tok -> (* alias *) todo env tok
     | `Tuple x -> map_tuple env x
   in
   todo env (v1, v2, v3)
@@ -882,14 +976,17 @@ and map_expression (env : env) (x : CST.expression) =
       in
       let v4 = (* ")" *) token env v4 in
       todo env (v1, v2, v3, v4)
-  | `Id x -> map_identifier env x
-  | `Alias tok -> (* alias *) token env tok
-  | `Int tok -> (* integer *) token env tok
-  | `Float tok -> (* float *) token env tok
-  | `Char_a87deb0 tok -> (* pattern \?(.|\\.) *) token env tok
-  | `Bool x -> map_boolean env x
-  | `Nil tok -> (* "nil" *) token env tok
-  | `Atom x -> map_atom env x
+  | `Id x -> G.N (G.Id (map_identifier env x, G.empty_id_info ())) |> G.e
+  | `Alias tok -> (* alias *) G.N (G.Id (H.str env tok, G.empty_id_info ())) |> G.e
+  | `Int tok ->
+      (* integer *)
+      let s, tok = H.str env tok in
+      G.L (G.Int (int_of_string_opt s, tok)) |> G.e
+  | `Float tok -> (* float *) todo env tok
+  | `Char_a87deb0 tok -> (* pattern \?(.|\\.) *) todo env tok
+  | `Bool x -> G.L (map_boolean env x) |> G.e
+  | `Nil tok -> (* "nil" *) todo env tok
+  | `Atom x -> G.L (map_atom env x) |> G.e
   | `Str x -> map_string_ env x
   | `Char_a593f90 x -> map_charlist env x
   | `Sigil (v1, v2, v3) ->
@@ -1083,10 +1180,10 @@ and map_keywords_with_trailing_separator (env : env)
 
 and map_local_call_with_parentheses (env : env)
     ((v1, v2, v3) : CST.local_call_with_parentheses) =
-  let v1 = map_identifier env v1 in
-  let v2 = map_call_arguments_with_parentheses_immediate env v2 in
+  let id = G.N (G.Id (map_identifier env v1, G.empty_id_info ())) |> G.e in
+  let args = map_call_arguments_with_parentheses_immediate env v2 in
   let v3 = map_anon_opt_opt_nl_before_do_do_blk_3eff85f env v3 in
-  todo env (v1, v2, v3)
+  G.Call (id, args) |> G.e
 
 and map_pair (env : env) ((v1, v2) : CST.pair) =
   let v1 = map_keyword env v1 in
@@ -1138,19 +1235,21 @@ and map_quoted_i_curly (env : env) ((v1, v2, v3) : CST.quoted_i_curly) =
   todo env (v1, v2, v3)
 
 and map_quoted_i_double (env : env) ((v1, v2, v3) : CST.quoted_i_double) =
-  let v1 = (* "\"" *) token env v1 in
-  let v2 =
+  let ldquote = (* "\"" *) token env v1 in
+  let strs =
     Common.map
       (fun x ->
         match x with
-        | `Quoted_content_i_double tok ->
-            (* quoted_content_i_double *) token env tok
-        | `Interp x -> map_interpolation env x
-        | `Esc_seq tok -> (* escape_sequence *) token env tok)
+        | `Quoted_content_i_double tok -> (* quoted_content_i_double *) H.str env tok
+        (* | `Interp x -> map_interpolation env x *)
+        | `Interp x -> todo env x
+        | `Esc_seq tok -> (* escape_sequence *) H.str env tok)
       v2
   in
-  let v3 = (* "\"" *) token env v3 in
-  todo env (v1, v2, v3)
+  let rdquote = (* "\"" *) token env v3 in
+  let str = strs |> Common.map fst |> String.concat "" in
+  let toks = (strs |> Common.map snd) @ [ rdquote ] in
+  G.L (G.String (str, Parse_info.combine_infos ldquote toks)) |> G.e
 
 and map_quoted_i_heredoc_double (env : env)
     ((v1, v2, v3) : CST.quoted_i_heredoc_double) =
@@ -1247,39 +1346,44 @@ and map_quoted_i_square (env : env) ((v1, v2, v3) : CST.quoted_i_square) =
 
 and map_remote_call_with_parentheses (env : env)
     ((v1, v2, v3) : CST.remote_call_with_parentheses) =
-  let v1 = map_remote_dot env v1 in
+  let dot_access = map_remote_dot env v1 in
   let v2 = map_call_arguments_with_parentheses_immediate env v2 in
   let v3 = map_anon_opt_opt_nl_before_do_do_blk_3eff85f env v3 in
-  todo env (v1, v2, v3)
+  G.Call (dot_access, v2) |> G.e
 
 and map_remote_dot (env : env) ((v1, v2, v3) : CST.remote_dot) =
   let v1 = map_expression env v1 in
   let v2 = (* "." *) token env v2 in
   let v3 =
     match v3 with
-    | `Id x -> map_identifier env x
+    | `Id x ->
+      let id = G.Id (map_identifier env x, G.empty_id_info ()) in
+      G.FN id
     | `Choice_and x -> (
         match x with
-        | `And tok -> (* "and" *) token env tok
-        | `In tok -> (* "in" *) token env tok
-        | `Not tok -> (* "not" *) token env tok
-        | `Or tok -> (* "or" *) token env tok
-        | `When tok -> (* "when" *) token env tok
-        | `True tok -> (* "true" *) token env tok
-        | `False tok -> (* "false" *) token env tok
-        | `Nil tok -> (* "nil" *) token env tok
-        | `After tok -> (* "after" *) token env tok
-        | `Catch tok -> (* "catch" *) token env tok
-        | `Do tok -> (* "do" *) token env tok
-        | `Else tok -> (* "else" *) token env tok
-        | `End tok -> (* "end" *) token env tok
-        | `Fn tok -> (* "fn" *) token env tok
-        | `Rescue tok -> (* "rescue" *) token env tok)
-    | `Op_id x -> map_operator_identifier env x
-    | `Quoted_i_double x -> map_quoted_i_double env x
-    | `Quoted_i_single x -> map_quoted_i_single env x
+        | `And tok -> (* "and" *) todo env tok
+        | `In tok -> (* "in" *) todo env tok
+        | `Not tok -> (* "not" *) todo env tok
+        | `Or tok -> (* "or" *) todo env tok
+        | `When tok -> (* "when" *) todo env tok
+        | `True tok -> (* "true" *) todo env tok
+        | `False tok -> (* "false" *) todo env tok
+        | `Nil tok -> (* "nil" *) todo env tok
+        | `After tok -> (* "after" *) todo env tok
+        | `Catch tok -> (* "catch" *) todo env tok
+        | `Do tok -> (* "do" *) todo env tok
+        | `Else tok -> (* "else" *) todo env tok
+        | `End tok -> (* "end" *) todo env tok
+        | `Fn tok -> (* "fn" *) todo env tok
+        | `Rescue tok -> (* "rescue" *) todo env tok)
+    (* | `Op_id x -> map_operator_identifier env x *)
+    | `Op_id x -> todo env x
+    (* | `Quoted_i_double x -> map_quoted_i_double env x *)
+    | `Quoted_i_double x -> todo env x
+    (* | `Quoted_i_single x -> map_quoted_i_single env x *)
+    | `Quoted_i_single x -> todo env x
   in
-  todo env (v1, v2, v3)
+  G.DotAccess (v1, v2, v3) |> G.e
 
 and map_rescue_block (env : env) ((v1, v2, v3) : CST.rescue_block) =
   let v1 = (* "rescue" *) token env v1 in
@@ -1352,13 +1456,14 @@ and map_string_ (env : env) (x : CST.string_) =
   | `Quoted_i_here_double x -> map_quoted_i_heredoc_double env x
 
 and map_struct_ (env : env) (x : CST.struct_) =
-  match x with
+  todo env x
+  (* match x with
   | `Alias tok -> (* alias *) token env tok
   | `Atom x -> map_atom env x
   | `Id x -> map_identifier env x
   | `Un_op x -> map_unary_operator env x
   | `Dot x -> map_dot env x
-  | `Call_with_parens x -> map_call_with_parentheses env x
+  | `Call_with_parens x -> map_call_with_parentheses env x *)
 
 and map_tuple (env : env) ((v1, v2, v3) : CST.tuple) =
   let v1 = (* "{" *) token env v1 in
@@ -1368,7 +1473,7 @@ and map_tuple (env : env) ((v1, v2, v3) : CST.tuple) =
     | None -> todo env ()
   in
   let v3 = (* "}" *) token env v3 in
-  todo env (v1, v2, v3)
+  G.Container (G.Tuple, (v1, v2, v3)) |> G.e
 
 and map_unary_operator (env : env) (x : CST.unary_operator) =
   match x with
@@ -1413,12 +1518,13 @@ let map_source (env : env) ((v1, v2) : CST.source) =
   let v1 =
     match v1 with
     | Some x -> map_terminator env x
-    | None -> todo env ()
+    | None -> G.sc
   in
   let v2 =
     match v2 with
     | Some (v1, v2, v3) ->
-        let v1 = map_expression env v1 in
+        (* v1 is the code block *)
+        let v1 = unwrap_expr_stmt (map_expression env v1) in
         let v2 =
           Common.map
             (fun (v1, v2) ->
@@ -1430,12 +1536,12 @@ let map_source (env : env) ((v1, v2) : CST.source) =
         let v3 =
           match v3 with
           | Some x -> map_terminator env x
-          | None -> todo env ()
+          | None -> G.sc 
         in
-        todo env (v1, v2, v3)
+        v1
     | None -> todo env ()
   in
-  todo env (v1, v2)
+  G.Pr [v2]
 
 (*****************************************************************************)
 (* Entry point *)

@@ -1,5 +1,5 @@
-defmodule Hello do
-  def hello do
+module Hello 
+  def hello
     IO.puts("Hello world!!")
   end
 end
