@@ -791,7 +791,6 @@ and get_func_id_and_params (env: env) x =
 and get_func_params (env : env) (x : CST.call_arguments_with_trailing_separator) =
   match x with
   | `Exp_rep_COMMA_exp_opt_COMMA_keywos_with_trai_sepa (v1, v2, v3) ->
-      print_endline "GET FUNC PARAMS";
       let (id, _) = get_func_id_and_params env v1 in
       [G.Param (G.param_of_id id)]
   | `Keywos_with_trai_sepa x -> todo env x 
@@ -1384,8 +1383,6 @@ and map_remote_dot (env : env) ((v1, v2, v3) : CST.remote_dot) =
     (* | `Quoted_i_single x -> map_quoted_i_single env x *)
     | `Quoted_i_single x -> todo env x
   in
-  print_endline "HERE!!!";
-  G.show_expr v1 |> print_endline;
   G.DotAccess (v1, v2, v3) |> G.e
 
 and map_rescue_block (env : env) ((v1, v2, v3) : CST.rescue_block) =
