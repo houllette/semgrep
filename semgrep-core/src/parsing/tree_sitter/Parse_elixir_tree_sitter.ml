@@ -780,7 +780,7 @@ and map_call_with_parentheses (env : env) (x : CST.call_with_parentheses) =
       in
       let v2 = map_call_arguments_with_parentheses env v2 in
       let v3 = map_anon_opt_opt_nl_before_do_do_blk_3eff85f env v3 in
-      todo env (v1, v2, v3)
+      v1
 
 and get_func_id_and_params (env: env) x =
   match x with
@@ -1539,7 +1539,7 @@ let map_source (env : env) ((v1, v2) : CST.source) =
           | None -> G.sc 
         in
         v1
-    | None -> todo env ()
+    | None -> empty_statement
   in
   G.Pr [v2]
 
@@ -1571,7 +1571,13 @@ let parse_pattern str =
     (fun cst ->
       let file = "<pattern>" in
       let env = { H.file; conv = Hashtbl.create 0; extra = () } in
-      match map_source env cst with
-      | G.Pr [ x ] -> G.S x
-      | G.Pr xs -> G.Ss xs
-      | x -> x)
+      try
+        match map_source env cst with
+        | G.Pr [ x ] -> G.S x
+        | G.Pr xs -> G.Ss xs
+        | _ -> failwith "not a program"
+      with
+      | Failure "not implemented" as exn ->
+          let e = Exception.catch exn in
+          H.debug_sexp_cst_after_error (CST.sexp_of_source cst);
+          Exception.reraise e)
