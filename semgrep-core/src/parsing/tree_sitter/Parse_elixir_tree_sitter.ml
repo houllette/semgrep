@@ -442,7 +442,7 @@ and map_anon_choice_choice_stab_clause_rep_term_choice_stab_clause_b295119
         | Some x -> map_terminator env x
         | None -> G.sc
       in
-      v1
+      v1 :: v2
 
 and map_anon_choice_exp_0094635 (env : env) (x : CST.anon_choice_exp_0094635) =
   match x with
@@ -494,7 +494,7 @@ and map_anon_term_choice_exp_996111b (env : env)
   let v1 = map_terminator env v1 in
   let v2 =
     match v2 with
-    | `Exp x -> map_expression env x
+    | `Exp x -> unwrap_expr_stmt (map_expression env x)
   in
   v2
 
@@ -917,7 +917,7 @@ and map_do_block (env : env) ((v1, v2, v3, v4, v5) : CST.do_block) =
     | Some x ->
         map_anon_choice_choice_stab_clause_rep_term_choice_stab_clause_b295119
           env x
-    | None -> empty_statement
+    | None -> []
   in
   let v4 =
     Common.map
@@ -930,7 +930,7 @@ and map_do_block (env : env) ((v1, v2, v3, v4, v5) : CST.do_block) =
       v4
   in
   let v5 = (* "end" *) token env v5 in
-  G.Block (v1, [v3], v5) |> G.s (* TODO *)
+  G.Block (v1, v3, v5) |> G.s (* TODO *)
 
 and map_dot (env : env) ((v1, v2, v3) : CST.dot) =
   let v1 = map_expression env v1 in
